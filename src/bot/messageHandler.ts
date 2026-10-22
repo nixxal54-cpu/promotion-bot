@@ -6,6 +6,30 @@ import { createLogger } from '../logging/logger.js';
 
 const logger = createLogger('message-handler');
 
+/**
+ * Flexible group ID comparison that tolerates Telegram's -100 prefix, signs, and accidental quotes
+ */
+export function isMatchingGroupId(actualChatId: number | string | undefined, configuredGroupId: string | undefined): boolean {
+  if (!actualChatId || !configuredGroupId) return false;
+
+  const actualStr = String(actualChatId).trim();
+  const configStr = String(configuredGroupId).replace(/['"]/g, '').trim();
+
+  if (actualStr === configStr) return true;
+
+  const actualNum = Number(actualStr);
+  const configNum = Number(configStr);
+  if (!isNaN(actualNum) && !isNaN(configNum) && actualNum === configNum) return true;
+
+  const actualDigits = actualStr.replace(/^-100|^-/, '');
+  const configDigits = configStr.replace(/^-100|^-/, '');
+  if (actualDigits.length >= 7 && actualDigits === configDigits) {
+    return true;
+  }
+
+  return false;
+}
+
 export async function handleIncomingMessage(
   ctx: Context,
   config: AppConfig,
@@ -18,6 +42,7 @@ export async function handleIncomingMessage(
 
   // 1. Ignore messages from bots (critical: ignores third-party movie bot responses)
   if (message.from?.is_bot) {
+    logger.debug('Ignored message: sender is a bot');
     return;
   }
 
@@ -41,19 +66,21 @@ export async function handleIncomingMessage(
   const chat = ctx.chat ?? message.chat;
   const chatType = chat?.type;
   if (chatType !== 'group' && chatType !== 'supergroup') {
-    // In private chats, we don't count movie requests for promotions
+    logger.debug(`Ignored message: chat type is "${chatType}", not a group or supergroup`);
     return;
   }
 
   // 6. Restrict to configured target group (fail-safe protection)
   const currentChatId = String(chat?.id);
+  logger.info(`Received text message in group ${currentChatId} (${chatType}): "${text.substring(0, 30)}"`);
+
   if (!config.groupId) {
-    logger.warn('Incoming group message ignored: GROUP_ID is not configured.');
+    logger.warn(`GROUP_ID is not configured in environment! Received message from group ${currentChatId}. Run /diagnostics in your group to obtain the exact ID.`);
     return;
   }
 
-  if (currentChatId !== String(config.groupId)) {
-    // Message from an unconfigured group: ignore silently
+  if (!isMatchingGroupId(chat?.id, config.groupId)) {
+    logger.warn(`Ignored message: chat ${currentChatId} does not match configured GROUP_ID "${config.groupId}". Run /diagnostics to verify.`);
     return;
   }
 
@@ -65,13 +92,11 @@ export async function handleIncomingMessage(
   });
 
   if (!detectionResult.isMatch) {
-    logger.debug('Message did not match movie request criteria', {
-      reason: detectionResult.reason,
-    });
+    logger.info(`Message did not match movie title format: "${text}" (Reason: ${detectionResult.reason})`);
     return;
   }
 
-  logger.info('Eligible movie request identified', {
+  logger.info(`Eligible movie request identified: "${text}"`, {
     updateId: ctx.update?.update_id,
     confidence: detectionResult.confidence,
     year: detectionResult.detectedYear,

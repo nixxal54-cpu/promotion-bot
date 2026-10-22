@@ -2,6 +2,7 @@ import { Bot, Context, InlineKeyboard } from 'grammy';
 import { StorageInterface } from '../storage/interface.js';
 import { AppConfig } from '../config.js';
 import { isUserAdmin } from './adminAuth.js';
+import { isMatchingGroupId } from './messageHandler.js';
 import { buildConnectMessage, escapeHtml } from '../promotions/promotionMessage.js';
 import { createLogger } from '../logging/logger.js';
 
@@ -197,25 +198,58 @@ export function registerBotCommands(bot: Bot, storage: StorageInterface, config:
   bot.command('diagnostics', async (ctx: Context) => {
     const chatType = ctx.chat?.type;
     const isGroup = chatType === 'group' || chatType === 'supergroup';
-    const matchesGroupId = config.groupId ? String(ctx.chat?.id) === String(config.groupId) : false;
+    const matchesGroupId = isMatchingGroupId(ctx.chat?.id, config.groupId);
+    const state = await storage.getState();
+
+    // Check bot's own member status in this group
+    let botStatusInGroup = 'Unknown';
+    let isAdminInGroup = false;
+    if (isGroup && ctx.me?.id) {
+      try {
+        const botMember = await ctx.getChatMember(ctx.me.id);
+        botStatusInGroup = botMember.status;
+        isAdminInGroup = botMember.status === 'administrator' || botMember.status === 'creator';
+      } catch (err) {
+        botStatusInGroup = `Check failed: ${(err as Error).message}`;
+      }
+    }
+
+    // Inspect Telegram webhook status
+    let webhookStatusLine = 'Unknown';
+    try {
+      const webhookInfo = await ctx.api.getWebhookInfo();
+      if (webhookInfo.url) {
+        webhookStatusLine = `<code>${escapeHtml(webhookInfo.url)}</code> (Pending: ${webhookInfo.pending_update_count})`;
+        if (webhookInfo.last_error_message) {
+          webhookStatusLine += `\n⚠️ <i>Last Telegram error: ${escapeHtml(webhookInfo.last_error_message)}</i>`;
+        }
+      } else {
+        webhookStatusLine = '🔴 <b>NO WEBHOOK URL REGISTERED WITH TELEGRAM!</b>';
+      }
+    } catch (err) {
+      webhookStatusLine = `Error checking: ${(err as Error).message}`;
+    }
 
     const text = [
-      '🩺 <b>Telegram Bot Diagnostics & Privacy Mode Guide</b>',
+      '🩺 <b>Movie Promo Bot Diagnostics</b>',
       '',
       `• <b>Current Chat ID:</b> <code>${ctx.chat?.id}</code> (${chatType})`,
-      `• <b>Target Group Configured:</b> <code>${config.groupId || 'NOT SET'}</code>`,
-      `• <b>Chat Matches Target:</b> ${matchesGroupId ? '✅ Yes' : '⚠️ No (Bot will ignore messages here)'}`,
+      `• <b>Configured GROUP_ID:</b> <code>${config.groupId || 'NOT SET'}</code>`,
+      `• <b>Group ID Matches:</b> ${matchesGroupId ? '✅ Yes' : '❌ NO (Bot ignores messages here!)'}`,
+      `• <b>Current Counter:</b> <code>${state.requestCount} / ${state.promoThreshold}</code> requests`,
+      `• <b>Bot Status in Group:</b> <code>${botStatusInGroup}</code> ${isAdminInGroup ? '✅ (Can read all messages)' : '⚠️ (Member)'}`,
+      `• <b>Telegram Webhook:</b> ${webhookStatusLine}`,
       '',
-      '<b>Telegram Privacy Mode Instructions:</b>',
-      'By default, Telegram bots in groups with "Group Privacy" enabled ONLY receive commands (/), replies, or mentions.',
+      matchesGroupId
+        ? '✅ <b>Chat ID is configured correctly!</b>'
+        : '⚠️ <b>ACTION REQUIRED:</b> Copy the Chat ID above and set it as <code>GROUP_ID</code> in Render Environment tab!',
       '',
-      'To allow this bot to count ordinary movie title text messages (e.g. "Leo 2023"):',
-      '1. Open @BotFather in Telegram.',
-      '2. Send <code>/setprivacy</code>.',
-      '3. Select this bot and choose <b>Disable</b>.',
-      '4. Add the bot to your group and ensure the group administrator grants regular message read permissions.',
-      '',
-      '<i>Note: Telegram Privacy Mode changes can take 5-10 minutes to propagate or may require removing and re-adding the bot to the group.</i>',
+      '🔍 <b>Why Messages Might Not Count:</b>',
+      '1. <b>Telegram Group Privacy:</b> By default, Telegram drops ordinary text messages sent to bots! To fix:',
+      '   • <b>Option A (Easiest):</b> Promote this bot to <b>Administrator</b> in group settings (requires no extra permissions, instantly allows reading messages).',
+      '   • <b>Option B:</b> Message @BotFather → <code>/setprivacy</code> → Select bot → <b>Disable</b>. Then <i>remove and re-add</i> the bot to this group.',
+      '2. <b>Group ID Mismatch:</b> Verify your Render <code>GROUP_ID</code> matches <code>' + ctx.chat?.id + '</code> exactly.',
+      '3. <b>Movie Title Format:</b> Send titles like <code>Leo 2023</code> or <code>Interstellar 1080p</code>.',
     ].join('\n');
 
     await ctx.reply(text, { parse_mode: 'HTML' });
