@@ -1,0 +1,6 @@
+{
+  "name": "Movie Promo Bot - Telegram Promotion Engine",
+  "description": "Production-grade Telegram group promotion bot and interactive operations dashboard with transactional counter, cooldown management, and heuristic request detection.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
