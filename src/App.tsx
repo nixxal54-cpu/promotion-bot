@@ -960,9 +960,9 @@ export default function App() {
                 <div className="p-3.5 rounded-xl bg-slate-950 border border-slate-800 space-y-1">
                   <span className="text-slate-400 text-[11px] block">Render Build Command:</span>
                   <div className="flex items-center justify-between text-indigo-300">
-                    <code>npm install && npm run build</code>
+                    <code>npm install --legacy-peer-deps --include=dev && npm run build</code>
                     <button
-                      onClick={() => copyToClipboard('build_cmd', 'npm install && npm run build')}
+                      onClick={() => copyToClipboard('build_cmd', 'npm install --legacy-peer-deps --include=dev && npm run build')}
                       className="p-1 hover:text-white"
                     >
                       <Copy className="w-3.5 h-3.5" />

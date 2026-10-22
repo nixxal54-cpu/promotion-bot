@@ -134,7 +134,7 @@ If configuring manually without blueprints:
 2. Connect your GitHub repository.
 3. Configure the service settings:
    - **Environment**: `Node`
-   - **Build Command**: `npm install && npm run build`
+   - **Build Command**: `npm install --legacy-peer-deps --include=dev && npm run build`
    - **Start Command**: `npm run start`
    - **Health Check Path**: `/healthz`
 4. In the **Environment Variables** section, add:
